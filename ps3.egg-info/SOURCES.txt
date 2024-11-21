@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+setup.cfg
+ps3/__init__.py
+ps3.egg-info/PKG-INFO
+ps3.egg-info/SOURCES.txt
+ps3.egg-info/dependency_links.txt
+ps3.egg-info/top_level.txt

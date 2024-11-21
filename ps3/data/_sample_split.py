@@ -21,5 +21,22 @@ def create_sample_split(df, id_column, training_frac=0.8):
     pd.DataFrame
         Training data with sample column containing train/test split based on IDs.
     """
+    # Ensure ID column exists
+    if id_column not in df.columns:
+        raise ValueError(f"Column {id_column} not found in DataFrame.")
+
+    # Create a numeric hash of each ID if necessary
+    if df[id_column].dtype == 'object':
+        hash_func = lambda x: int(hashlib.sha256(x.encode()).hexdigest(), 16) % (10 ** 10)
+        ids = df[id_column].apply(hash_func)
+    else:
+        ids = df[id_column].astype(np.int64)
+
+    # Determine the threshold ID value at the specified fraction
+    threshold = ids.quantile(training_frac)
+
+    # Assign to 'train' or 'test' based on whether ID is less than or equal to the threshold
+    df['sample'] = np.where(ids <= threshold, 'train', 'test')
 
     return df
+    

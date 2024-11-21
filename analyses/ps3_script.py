@@ -23,10 +23,17 @@ weight = df["Exposure"].values
 df["PurePremium"] = df["ClaimAmountCut"] / df["Exposure"]
 y = df["PurePremium"]
 # TODO: Why do you think, we divide by exposure here to arrive at our outcome variable?
+'''
+In actuarial terms, Pure Premium is usually defined as the amount of money expected to be claimed per unit of exposure. Exposure is the length of time or degree of risk covered by an insurance policy, usually in years.
 
+ClaimAmountCut: Represents the total amount claimed for the entire exposure period.
+Exposure: indicates the duration of exposure, i.e. the length of time the policy is in force.
+By calculating PurePremium = ClaimAmountCut/Exposure, we get the average claim amount per unit of exposure. This is important for building an insurance pricing model because it standardises the amount of claims so that policies with different exposure times can be fairly compared.
+
+'''
 
 # TODO: use your create_sample_split function here
-# df = create_sample_split(...)
+df = create_sample_split(df, id_column='IDpol', training_frac=0.8)
 train = np.where(df["sample"] == "train")
 test = np.where(df["sample"] == "test")
 df_train = df.iloc[train].copy()
@@ -89,12 +96,26 @@ numeric_cols = ["BonusMalus", "Density"]
 preprocessor = ColumnTransformer(
     transformers=[
         # TODO: Add numeric transforms here
+        (
+            "num",
+            Pipeline([
+                ("scaler", StandardScaler()),
+                ("spline", SplineTransformer(knots="quantile", include_bias=False))
+            ]),
+            numeric_cols
+        ),
         ("cat", OneHotEncoder(sparse_output=False, drop="first"), categoricals),
     ]
 )
 preprocessor.set_output(transform="pandas")
-model_pipeline = Pipeline(
+model_pipeline = Pipeline(  
     # TODO: Define pipeline steps here
+    
+    steps=[
+        ("preprocessor", preprocessor),
+        ("estimate", GeneralizedLinearRegressor(family=TweedieDist, l1_ratio=1, fit_intercept=True))
+    ]
+
 )
 
 # let's have a look at the pipeline
@@ -170,9 +191,49 @@ print(
 # Note: Typically we tune many more parameters and larger grids,
 # but to save compute time here, we focus on getting the learning rate
 # and the number of estimators somewhat aligned -> tune learning_rate and n_estimators
-cv = GridSearchCV(
 
+# Step 1: Define the modeling pipeline
+model_pipeline = Pipeline(
+    steps=[
+        ("preprocessor", preprocessor),  # Preprocessing step
+        ("estimate", LGBMRegressor(objective='tweedie', tweedie_variance_power=1.5, random_state=42))  # GBM model
+    ]
 )
+
+# Step 2: Ensure we use the correct objective function for the estimator
+# In LGBMRegressor, use `objective='tweedie'` and set `tweedie_variance_power=1.5` to match the Tweedie distribution.
+
+# Fit the model
+model_pipeline.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
+
+# TODO: Tune the LGBM model to reduce overfitting
+# Steps:
+# 1. Define a `GridSearchCV` object to tune the LGBM pipeline/estimator.
+# Parameters for specific pipeline steps can be passed using <step_name>__param.
+
+# Define parameter grid
+param_grid = {
+    'estimate__learning_rate': [0.01, 0.05, 0.1],  # Learning rates to try
+    'estimate__n_estimators': [100, 500, 1000],    # Number of estimators to try
+}
+
+# Define a custom scoring function (use negative Tweedie deviance as the score)
+def tweedie_deviance_score(y_true, y_pred):
+    return -TweedieDist.deviance(y_true, y_pred)
+
+# Create a scorer object
+from sklearn.metrics import make_scorer
+scorer = make_scorer(tweedie_deviance_score, greater_is_better=True)
+
+# Define the GridSearchCV object
+cv = GridSearchCV(
+    estimator=model_pipeline,
+    param_grid=param_grid,
+    scoring=scorer,
+    cv=3,  # 3-fold cross-validation
+    n_jobs=-1,  # Use all available CPU cores
+)
+
 cv.fit(X_train_t, y_train_t, estimate__sample_weight=w_train_t)
 
 df_test["pp_t_lgbm"] = cv.best_estimator_.predict(X_test_t)
