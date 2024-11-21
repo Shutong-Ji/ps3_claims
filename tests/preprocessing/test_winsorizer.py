@@ -11,4 +11,8 @@ def test_winsorizer(lower_quantile, upper_quantile):
 
     X = np.random.normal(0, 1, 1000)
 
-    assert False
+    winsorizer = Winsorizer(lower_quantile = lower_quantile, upper_quantile = upper_quantile)
+    winsorizer.fit(X)
+    X_clipped = winsorizer.transform(X)
+    assert np.all(X_clipped >= np.percentile(X, lower_quantile * 100))
+    assert np.all(X_clipped <= np.percentile(X, upper_quantile * 100))
